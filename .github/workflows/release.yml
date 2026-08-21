@@ -17,8 +17,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
-      - name: Install pinned wasm-tools
-        run: cargo install wasm-tools --version 1.252.0 --locked
+      - name: Install pinned build tools
+        run: |
+          cargo install just --version 1.57.0 --locked
+          cargo install wasm-tools --version 1.252.0 --locked
       - name: Install checksum-verified Sigil 0.31.0
         run: |
           curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/bobisme/sigil-releases/releases/download/v0.31.0/sha256.sum
@@ -41,4 +43,3 @@ jobs:
             "dist/$name-$version.sigil-plugin.tar.zst" \
             dist/SHA256SUMS \
             --verify-tag --title "$name $version" --generate-notes
-
