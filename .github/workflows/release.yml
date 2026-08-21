@@ -1,0 +1,44 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Install pinned wasm-tools
+        run: cargo install wasm-tools --version 1.252.0 --locked
+      - name: Install checksum-verified Sigil 0.31.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/bobisme/sigil-releases/releases/download/v0.31.0/sha256.sum
+          curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/bobisme/sigil-releases/releases/download/v0.31.0/sigil-x86_64-unknown-linux-gnu.tar.xz
+          grep -F ' *sigil-x86_64-unknown-linux-gnu.tar.xz' sha256.sum | sha256sum --check --strict
+          tar -xJf sigil-x86_64-unknown-linux-gnu.tar.xz
+          echo "$PWD/sigil-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
+      - name: Verify tag and build canonical assets
+        run: |
+          version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' plugin.toml)"
+          test "${GITHUB_REF_NAME#v}" = "$version"
+          just dist
+      - name: Publish immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="$(sed -n 's/^name = "\([^"]*\)"$/\1/p' plugin.toml)"
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/$name-$version.sigil-plugin.tar.zst" \
+            dist/SHA256SUMS \
+            --verify-tag --title "$name $version" --generate-notes
+

@@ -1,0 +1,10 @@
+package example:plugin@1.0.0;
+
+interface api {
+  echo-u32: func(value: u32) -> u32;
+}
+
+world plugin {
+  export api;
+}
+

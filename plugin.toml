@@ -1,0 +1,19 @@
+schema_version = 1
+name = "example"
+version = "0.1.0"
+description = "pure Sigil plugin template"
+license = "MIT"
+
+[component]
+file = "plugin.wasm"
+entrypoint = "example:plugin/api@1.0.0"
+
+[requires]
+sigil = ">=0.31.0, <1.0.0"
+host_api = "^1.0"
+
+[capabilities]
+
+[repository]
+source = "github:owner/example"
+
