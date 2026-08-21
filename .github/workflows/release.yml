@@ -14,20 +14,20 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
       - name: Install pinned build tools
         run: |
           cargo install just --version 1.57.0 --locked
           cargo install wasm-tools --version 1.252.0 --locked
-      - name: Install checksum-verified Sigil 0.31.0
+      - name: Build checksum-verified zstd 1.5.7
         run: |
-          curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/bobisme/sigil-releases/releases/download/v0.31.0/sha256.sum
-          curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/bobisme/sigil-releases/releases/download/v0.31.0/sigil-x86_64-unknown-linux-gnu.tar.xz
-          grep -F ' *sigil-x86_64-unknown-linux-gnu.tar.xz' sha256.sum | sha256sum --check --strict
-          tar -xJf sigil-x86_64-unknown-linux-gnu.tar.xz
-          echo "$PWD/sigil-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
+          curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz
+          echo 'eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3  zstd-1.5.7.tar.gz' | sha256sum --check --strict
+          tar -xzf zstd-1.5.7.tar.gz
+          make -C zstd-1.5.7 -j2 zstd
+          echo "$PWD/zstd-1.5.7/programs" >> "$GITHUB_PATH"
       - name: Verify tag and build canonical assets
         run: |
           version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' plugin.toml)"
