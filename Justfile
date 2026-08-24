@@ -20,3 +20,7 @@ sigil-check: check
 dist: check
     mkdir -p dist
     {{python}} scripts/pack.py plugin.toml dist
+
+release-dist source_commit: check
+    mkdir -p dist
+    {{python}} scripts/pack.py plugin.toml dist --source-commit "{{source_commit}}"

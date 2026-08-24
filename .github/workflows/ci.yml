@@ -17,6 +17,7 @@ jobs:
         run: |
           cargo install just --version 1.57.0 --locked
           cargo install wasm-tools --version 1.252.0 --locked
+          cargo install b3sum --version 1.8.3 --locked
       - name: Build checksum-verified zstd 1.5.7
         run: |
           curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz
@@ -24,9 +25,10 @@ jobs:
           tar -xzf zstd-1.5.7.tar.gz
           make -C zstd-1.5.7 -j2 zstd
           echo "$PWD/zstd-1.5.7/programs" >> "$GITHUB_PATH"
-      - name: Build twice with identical canonical bytes
+      - name: Build twice with identical package and release identity
         run: |
-          just dist
-          first="$(sha256sum dist/*.sigil-plugin.tar.zst)"
-          just dist
-          test "$first" = "$(sha256sum dist/*.sigil-plugin.tar.zst)"
+          source_commit=0000000000000000000000000000000000000000
+          just release-dist "$source_commit"
+          first="$(sha256sum dist/*.sigil-plugin.tar.zst dist/SHA256SUMS dist/release-manifest.json)"
+          just release-dist "$source_commit"
+          test "$first" = "$(sha256sum dist/*.sigil-plugin.tar.zst dist/SHA256SUMS dist/release-manifest.json)"

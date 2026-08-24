@@ -1,0 +1,40 @@
+name: prepare-release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+      - name: Install pinned build tools
+        run: |
+          cargo install just --version 1.57.0 --locked
+          cargo install wasm-tools --version 1.252.0 --locked
+          cargo install b3sum --version 1.8.3 --locked
+      - name: Build checksum-verified zstd 1.5.7
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSLO https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz
+          echo 'eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3  zstd-1.5.7.tar.gz' | sha256sum --check --strict
+          tar -xzf zstd-1.5.7.tar.gz
+          make -C zstd-1.5.7 -j2 zstd
+          echo "$PWD/zstd-1.5.7/programs" >> "$GITHUB_PATH"
+      - name: Build exact package and canonical release identity
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(sed -n 's/^source = "\([^"]*\)"$/\1/p' plugin.toml)" = "github:${GITHUB_REPOSITORY}"
+          just release-dist "$GITHUB_SHA"
+          test "$(find dist -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 3
+          test "$(find dist -mindepth 1 -maxdepth 1 | wc -l)" -eq 3
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-candidate-assets
+          path: dist/
+          if-no-files-found: error
