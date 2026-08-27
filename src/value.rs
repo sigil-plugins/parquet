@@ -75,12 +75,19 @@ fn temporal(value: RawCell, unit: TimeUnit, timestamp: bool) -> Result<Cell, Err
 
 fn integer(value: RawCell, integer_type: IntegerType) -> Result<Cell, Error> {
     match (value, integer_type) {
-        (RawCell::Int32(value), IntegerType::Int8 | IntegerType::Int16 | IntegerType::Int32) => {
-            Ok(Cell::Signed(i64::from(value)))
-        }
+        (RawCell::Int32(value), IntegerType::Int8) => i8::try_from(value)
+            .map(|value| Cell::Signed(i64::from(value)))
+            .map_err(|_error| mismatched()),
+        (RawCell::Int32(value), IntegerType::Int16) => i16::try_from(value)
+            .map(|value| Cell::Signed(i64::from(value)))
+            .map_err(|_error| mismatched()),
+        (RawCell::Int32(value), IntegerType::Int32) => Ok(Cell::Signed(i64::from(value))),
         (RawCell::Int64(value), IntegerType::Int64) => Ok(Cell::Signed(value)),
-        (RawCell::Int32(value), IntegerType::UInt8 | IntegerType::UInt16) => u64::try_from(value)
-            .map(Cell::Unsigned)
+        (RawCell::Int32(value), IntegerType::UInt8) => u8::try_from(value)
+            .map(|value| Cell::Unsigned(u64::from(value)))
+            .map_err(|_error| mismatched()),
+        (RawCell::Int32(value), IntegerType::UInt16) => u16::try_from(value)
+            .map(|value| Cell::Unsigned(u64::from(value)))
             .map_err(|_error| mismatched()),
         (RawCell::Int32(value), IntegerType::UInt32) => Ok(Cell::Unsigned(u64::from(value as u32))),
         (RawCell::Int64(value), IntegerType::UInt64) => Ok(Cell::Unsigned(value as u64)),

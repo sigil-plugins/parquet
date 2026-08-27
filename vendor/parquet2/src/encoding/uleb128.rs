@@ -8,7 +8,7 @@ pub fn decode(values: &[u8]) -> Result<(u64, usize), Error> {
     for byte in values {
         consumed += 1;
         if shift == 63 && *byte > 1 {
-            panic!()
+            return Err(Error::oos("ULEB128 value exceeds 64 bits"));
         };
 
         result |= u64::from(byte & 0b01111111) << shift;
@@ -18,6 +18,9 @@ pub fn decode(values: &[u8]) -> Result<(u64, usize), Error> {
         }
 
         shift += 7;
+    }
+    if consumed == 0 || values[consumed - 1] & 0b10000000 != 0 {
+        return Err(Error::oos("ULEB128 value is truncated"));
     }
     Ok((result, consumed))
 }

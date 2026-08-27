@@ -15,7 +15,9 @@ pub(super) fn dict_indices_decoder(page: &DataPage) -> Result<hybrid_rle::Hybrid
 
     // SPEC: Data page format: the bit width used to encode the entry ids stored as 1 byte (max bit width = 32),
     // SPEC: followed by the values encoded using RLE/Bit packed described above (with the given bit width).
-    let bit_width = indices_buffer[0];
+    let bit_width = *indices_buffer
+        .first()
+        .ok_or_else(|| Error::oos("dictionary index bit width is missing"))?;
     if bit_width > 32 {
         return Err(Error::oos(
             "Bit width of dictionary pages cannot be larger than 32",

@@ -196,6 +196,16 @@ fn boolean_values(page: &DataPage) -> Result<Vec<Option<bool>>, Error> {
             deserialize_optional(validity, values.by_ref().map(Ok))
         }
         BooleanPageState::Required(bitmap, length) => {
+            if bitmap
+                .len()
+                .checked_mul(8)
+                .ok_or(Error::WouldOverAllocate)?
+                < length
+            {
+                return Err(Error::OutOfSpec(
+                    "boolean data page is shorter than its declared value count".to_owned(),
+                ));
+            }
             Ok(BitmapIter::new(bitmap, 0, length).map(Some).collect())
         }
     }

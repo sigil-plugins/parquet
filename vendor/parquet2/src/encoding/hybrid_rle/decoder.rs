@@ -41,22 +41,30 @@ impl<'a> Iterator for Decoder<'a> {
             Err(e) => return Some(Err(e)),
         };
         self.values = &self.values[consumed..];
-        if self.values.is_empty() {
-            return None;
-        };
-
         if indicator & 1 == 1 {
             // is bitpacking
-            let bytes = (indicator as usize >> 1) * self.num_bits;
-            let bytes = std::cmp::min(bytes, self.values.len());
+            let Ok(groups) = usize::try_from(indicator >> 1) else {
+                return Some(Err(Error::WouldOverAllocate));
+            };
+            let Some(bytes) = groups.checked_mul(self.num_bits) else {
+                return Some(Err(Error::WouldOverAllocate));
+            };
+            if bytes > self.values.len() {
+                return Some(Err(Error::oos("bit-packed run is truncated")));
+            }
             let (result, remaining) = self.values.split_at(bytes);
             self.values = remaining;
             Some(Ok(HybridEncoded::Bitpacked(result)))
         } else {
             // is rle
-            let run_length = indicator as usize >> 1;
+            let Ok(run_length) = usize::try_from(indicator >> 1) else {
+                return Some(Err(Error::WouldOverAllocate));
+            };
             // repeated-value := value that is repeated, using a fixed-width of round-up-to-next-byte(bit-width)
             let rle_bytes = ceil8(self.num_bits);
+            if rle_bytes > self.values.len() {
+                return Some(Err(Error::oos("RLE run is truncated")));
+            }
             let (result, remaining) = self.values.split_at(rle_bytes);
             self.values = remaining;
             Some(Ok(HybridEncoded::Rle(result, run_length)))

@@ -22,7 +22,6 @@ pub enum HybridEncoded<'a> {
 
 #[derive(Debug, Clone)]
 enum State<'a> {
-    None,
     Bitpacked(bitpacked::Decoder<'a, u32>),
     Rle(std::iter::Take<std::iter::Repeat<u32>>),
     // Add a special branch for a single value to
@@ -59,7 +58,10 @@ fn read_next<'a, 'b>(decoder: &'b mut Decoder<'a>, remaining: usize) -> Result<S
                 State::Rle(std::iter::repeat(value).take(additional))
             }
         }
-        None => State::None,
+        None if decoder.num_bits() == 0 => {
+            State::Rle(std::iter::repeat(0).take(remaining))
+        }
+        None => return Err(Error::oos("hybrid RLE stream is truncated")),
     })
 }
 
@@ -92,7 +94,6 @@ impl<'a> Iterator for HybridRleDecoder<'a> {
             }
             State::Bitpacked(decoder) => decoder.next(),
             State::Rle(iter) => iter.next(),
-            State::None => Some(0),
         };
         if let Some(result) = result {
             self.remaining -= 1;

@@ -24,8 +24,11 @@ fn decompress_v2(
     //
     // We always use 0 offset for other pages other than v2, `true` flag means
     // that compression will be applied if decompressor is defined
-    let offset = (page_header.definition_levels_byte_length
-        + page_header.repetition_levels_byte_length) as usize;
+    let offset = page_header
+        .definition_levels_byte_length
+        .checked_add(page_header.repetition_levels_byte_length)
+        .ok_or_else(|| Error::oos("V2 page level lengths overflow"))?
+        .try_into()?;
     // When is_compressed flag is missing the page is considered compressed
     let can_decompress = page_header.is_compressed.unwrap_or(true);
 

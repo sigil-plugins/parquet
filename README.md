@@ -60,12 +60,21 @@ just check
 just dist
 ```
 
+Install that unpublished package into the per-user store before adding its
+project lock:
+
+```bash
+sigil plugin install --path dist/parquet-0.1.0.sigil-plugin.tar.zst
+sigil plugin add parquet@0.1.0
+```
+
 The checked-in `parquet-format-safe` 0.2.4 source splits one generated Thrift
 metadata reader into non-inlined helpers. The checked-in `parquet2` 0.17.2
 source replaces its 33-way const-generic `u32` bit-unpack dispatcher with an
-equivalent bounded dynamic loop. Together these small patches keep the compiled
-component within Sigil's fixed structural-nesting limit without weakening host
-validation or rewriting the finished Wasm binary.
+equivalent bounded dynamic loop and hardens malformed RLE/page boundaries used
+by this decoder. Together these patches keep the compiled component within
+Sigil's fixed structural-nesting limit, make corrupt input fail closed, and
+avoid rewriting the finished Wasm binary.
 
 This repository is a local candidate until its source, exact component/package
 bytes, release policy, and official namespace publication receive the separate

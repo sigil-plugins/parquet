@@ -193,8 +193,9 @@ pub(super) fn build_page<R: Read>(
         .unwrap_or_default();
 
     let read_size: usize = page_header.compressed_page_size.try_into()?;
+    let uncompressed_size: usize = page_header.uncompressed_page_size.try_into()?;
 
-    if read_size > reader.max_page_size {
+    if read_size > reader.max_page_size || uncompressed_size > reader.max_page_size {
         return Err(Error::WouldOverAllocate);
     }
 

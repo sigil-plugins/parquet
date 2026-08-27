@@ -143,6 +143,10 @@ fn is_supported(column: &ColumnDescriptor) -> bool {
         && column.descriptor.max_rep_level == 0
         && column.descriptor.primitive_type.physical_type != PhysicalType::Int96
         && !matches!(
+            column.descriptor.primitive_type.physical_type,
+            PhysicalType::FixedLenByteArray(0)
+        )
+        && !matches!(
             column.descriptor.primitive_type.logical_type,
             Some(
                 PrimitiveLogicalType::Unknown
@@ -369,10 +373,14 @@ mod tests {
     use std::sync::Arc;
 
     use parquet::basic::Compression;
-    use parquet::data_type::{ByteArray, ByteArrayType, DoubleType, Int64Type};
+    use parquet::data_type::{BoolType, ByteArray, ByteArrayType, DoubleType, Int64Type};
     use parquet::file::properties::WriterProperties;
     use parquet::file::writer::SerializedFileWriter;
     use parquet::schema::parser::parse_message_type;
+    use parquet2::metadata::Descriptor;
+    use parquet2::page::Page;
+    use parquet2::schema::Repetition;
+    use parquet2::schema::types::{FieldInfo, IntegerType, ParquetType, PrimitiveType};
 
     use super::*;
 
@@ -483,6 +491,102 @@ mod tests {
             .expect("repeated fixture writer should close")
     }
 
+    fn boolean_fixture() -> Vec<u8> {
+        let schema = Arc::new(
+            parse_message_type("message schema { REQUIRED BOOLEAN enabled; }")
+                .expect("boolean schema should parse"),
+        );
+        let mut writer = SerializedFileWriter::new(
+            Vec::new(),
+            schema,
+            Arc::new(
+                WriterProperties::builder()
+                    .set_dictionary_enabled(false)
+                    .build(),
+            ),
+        )
+        .expect("boolean fixture writer should open");
+        let mut row_group = writer
+            .next_row_group()
+            .expect("boolean row group should open");
+        let mut column = row_group
+            .next_column()
+            .expect("boolean column should open")
+            .expect("boolean column should exist");
+        column
+            .typed::<BoolType>()
+            .write_batch(&[true], None, None)
+            .expect("boolean value should write");
+        column.close().expect("boolean column should close");
+        row_group.close().expect("boolean row group should close");
+        writer.into_inner().expect("boolean fixture should close")
+    }
+
+    fn oversized_page_fixture() -> Vec<u8> {
+        let schema = Arc::new(
+            parse_message_type("message schema { REQUIRED BYTE_ARRAY payload; }")
+                .expect("oversized-page schema should parse"),
+        );
+        let properties = Arc::new(
+            WriterProperties::builder()
+                .set_compression(Compression::SNAPPY)
+                .set_dictionary_enabled(false)
+                .set_data_page_size_limit(4 * 1024 * 1024)
+                .build(),
+        );
+        let mut writer = SerializedFileWriter::new(Vec::new(), schema, properties)
+            .expect("oversized-page writer should open");
+        let mut row_group = writer
+            .next_row_group()
+            .expect("oversized-page row group should open");
+        let mut column = row_group
+            .next_column()
+            .expect("oversized-page column should open")
+            .expect("oversized-page column should exist");
+        let values = (0..2_500)
+            .map(|_| ByteArray::from(vec![0x61; 512]))
+            .collect::<Vec<_>>();
+        column
+            .typed::<ByteArrayType>()
+            .write_batch(&values, None, None)
+            .expect("oversized page values should write");
+        column.close().expect("oversized-page column should close");
+        row_group
+            .close()
+            .expect("oversized-page row group should close");
+        writer
+            .into_inner()
+            .expect("oversized-page fixture should close")
+    }
+
+    fn first_data_page(input: &[u8], column_index: usize) -> parquet2::page::DataPage {
+        let mut cursor = Cursor::new(input);
+        let metadata = read_metadata(&mut cursor).expect("fixture metadata should decode");
+        let chunk = &metadata.row_groups[0].columns()[column_index];
+        let pages = get_page_iterator(chunk, Cursor::new(input), None, Vec::new(), MAX_PAGE_BYTES)
+            .expect("fixture page iterator should open");
+        let mut pages = BasicDecompressor::new(pages, Vec::new());
+        while let Some(page) = pages.next().expect("fixture page should decode") {
+            if let Page::Data(page) = page {
+                return page.clone();
+            }
+        }
+        panic!("fixture should contain a data page");
+    }
+
+    fn integer_type(integer_type: IntegerType) -> PrimitiveType {
+        PrimitiveType {
+            field_info: FieldInfo {
+                name: "value".to_owned(),
+                repetition: Repetition::Required,
+                id: None,
+            },
+            logical_type: Some(PrimitiveLogicalType::Integer(integer_type)),
+            converted_type: None,
+            physical_type: PhysicalType::Int32,
+        }
+    }
+
     #[test]
     fn inspects_flat_file() {
         let info = <Parquet as Guest>::inspect(fixture(Compression::UNCOMPRESSED))
@@ -562,5 +666,130 @@ mod tests {
         )
         .expect_err("repeated cell read should fail explicitly");
         assert!(matches!(failure.class, ErrorClass::Unsupported));
+    }
+
+    #[test]
+    fn corrupt_required_boolean_page_fails_closed() {
+        let input = boolean_fixture();
+        let mut page = first_data_page(&input, 0);
+        page.buffer_mut().clear();
+        assert!(decode::read(&page, None, 0).is_err());
+    }
+
+    #[test]
+    fn truncated_dictionary_indices_fail_closed() {
+        let input = fixture(Compression::UNCOMPRESSED);
+        let mut cursor = Cursor::new(input.as_slice());
+        let metadata = read_metadata(&mut cursor).expect("fixture metadata should decode");
+        let column = &metadata.row_groups[0].columns()[0];
+        let pages = get_page_iterator(
+            column,
+            Cursor::new(input.as_slice()),
+            None,
+            Vec::new(),
+            MAX_PAGE_BYTES,
+        )
+        .expect("fixture page iterator should open");
+        let mut pages = BasicDecompressor::new(pages, Vec::new());
+        let mut dictionary = None;
+        let mut data_page = None;
+        while let Some(page) = pages.next().expect("fixture page should decode") {
+            match page {
+                Page::Dict(page) => {
+                    dictionary = Some(
+                        dictionary::decode(page, PhysicalType::Int64)
+                            .expect("fixture dictionary should decode"),
+                    );
+                }
+                Page::Data(page) => data_page = Some(page.clone()),
+            }
+        }
+        let dictionary = dictionary.expect("fixture should use dictionary encoding");
+        let mut data_page = data_page.expect("fixture should contain a data page");
+        data_page.buffer_mut().truncate(1);
+        assert!(decode::read(&data_page, Some(&dictionary), 0).is_err());
+    }
+
+    #[test]
+    fn malformed_v2_levels_and_hybrid_runs_return_errors() {
+        assert!(parquet2::page::split_buffer_v2(&[], 1, 0).is_err());
+        assert!(parquet2::encoding::hybrid_rle::HybridRleDecoder::try_new(&[], 1, 1).is_err());
+        assert!(parquet2::encoding::hybrid_rle::HybridRleDecoder::try_new(&[2], 1, 1).is_err());
+        let zeros = parquet2::encoding::hybrid_rle::HybridRleDecoder::try_new(&[], 0, 2)
+            .expect("zero-bit dictionary indices are valid")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("zero-bit indices should decode");
+        assert_eq!(zeros, [0, 0]);
+        let zeros_with_trailing_data =
+            parquet2::encoding::hybrid_rle::HybridRleDecoder::try_new(&[1], 0, 2)
+                .expect("zero-bit dictionary indices ignore their absent stream")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("zero-bit indices should not trap");
+        assert_eq!(zeros_with_trailing_data, [0, 0]);
+    }
+
+    #[test]
+    fn rejects_uncompressed_pages_above_the_page_limit() {
+        let input = oversized_page_fixture();
+        assert!(input.len() < MAX_INPUT_BYTES);
+        let failure = <Parquet as Guest>::read_cell(
+            input,
+            ReadOptions {
+                column: "payload".to_owned(),
+                row: 0,
+            },
+        )
+        .expect_err("oversized decompressed page should fail before allocation");
+        assert!(matches!(failure.class, ErrorClass::Limit));
+    }
+
+    #[test]
+    fn narrow_integer_annotations_enforce_their_ranges() {
+        for (value, kind) in [
+            (128, IntegerType::Int8),
+            (32_768, IntegerType::Int16),
+            (256, IntegerType::UInt8),
+            (65_536, IntegerType::UInt16),
+        ] {
+            assert!(value::convert(decode::RawCell::Int32(value), &integer_type(kind)).is_err());
+        }
+        assert!(matches!(
+            value::convert(
+                decode::RawCell::Int32(127),
+                &integer_type(IntegerType::Int8)
+            ),
+            Ok(Cell::Signed(127))
+        ));
+        assert!(matches!(
+            value::convert(
+                decode::RawCell::Int32(255),
+                &integer_type(IntegerType::UInt8)
+            ),
+            Ok(Cell::Unsigned(255))
+        ));
+    }
+
+    #[test]
+    fn zero_width_fixed_columns_are_unsupported() {
+        let primitive = PrimitiveType {
+            field_info: FieldInfo {
+                name: "empty".to_owned(),
+                repetition: Repetition::Required,
+                id: None,
+            },
+            logical_type: None,
+            converted_type: None,
+            physical_type: PhysicalType::FixedLenByteArray(0),
+        };
+        let column = ColumnDescriptor::new(
+            Descriptor {
+                primitive_type: primitive.clone(),
+                max_def_level: 0,
+                max_rep_level: 0,
+            },
+            vec!["empty".to_owned()],
+            ParquetType::PrimitiveType(primitive),
+        );
+        assert!(!is_supported(&column));
     }
 }

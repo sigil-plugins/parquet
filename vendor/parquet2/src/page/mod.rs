@@ -403,10 +403,19 @@ pub fn split_buffer_v2(
     rep_level_buffer_length: usize,
     def_level_buffer_length: usize,
 ) -> Result<(&[u8], &[u8], &[u8])> {
+    let values_start = rep_level_buffer_length
+        .checked_add(def_level_buffer_length)
+        .ok_or(Error::WouldOverAllocate)?;
     Ok((
-        &buffer[..rep_level_buffer_length],
-        &buffer[rep_level_buffer_length..rep_level_buffer_length + def_level_buffer_length],
-        &buffer[rep_level_buffer_length + def_level_buffer_length..],
+        buffer.get(..rep_level_buffer_length).ok_or_else(|| {
+            Error::oos("V2 repetition levels exceed the page size")
+        })?,
+        buffer.get(rep_level_buffer_length..values_start).ok_or_else(|| {
+            Error::oos("V2 definition levels exceed the page size")
+        })?,
+        buffer
+            .get(values_start..)
+            .ok_or_else(|| Error::oos("V2 level data exceeds the page size"))?,
     ))
 }
 
