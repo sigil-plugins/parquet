@@ -373,7 +373,10 @@ mod tests {
     use std::sync::Arc;
 
     use parquet::basic::Compression;
-    use parquet::data_type::{BoolType, ByteArray, ByteArrayType, DoubleType, Int64Type};
+    use parquet::data_type::{
+        BoolType, ByteArray, ByteArrayType, DoubleType, FixedLenByteArray, FixedLenByteArrayType,
+        Int32Type, Int64Type,
+    };
     use parquet::file::properties::WriterProperties;
     use parquet::file::writer::SerializedFileWriter;
     use parquet::schema::parser::parse_message_type;
@@ -559,6 +562,87 @@ mod tests {
             .expect("oversized-page fixture should close")
     }
 
+    fn plain_truncation_fixture() -> Vec<u8> {
+        let schema = Arc::new(
+            parse_message_type(
+                "message schema {
+                    REQUIRED INT32 native_value;
+                    REQUIRED BYTE_ARRAY binary_value;
+                    REQUIRED FIXED_LEN_BYTE_ARRAY(4) fixed_value;
+                    OPTIONAL INT32 optional_value;
+                }",
+            )
+            .expect("plain truncation schema should parse"),
+        );
+        let mut writer = SerializedFileWriter::new(
+            Vec::new(),
+            schema,
+            Arc::new(
+                WriterProperties::builder()
+                    .set_dictionary_enabled(false)
+                    .build(),
+            ),
+        )
+        .expect("plain truncation writer should open");
+        let mut row_group = writer
+            .next_row_group()
+            .expect("plain truncation row group should open");
+
+        let mut column = row_group
+            .next_column()
+            .expect("native column should open")
+            .expect("native column should exist");
+        column
+            .typed::<Int32Type>()
+            .write_batch(&[7, 9], None, None)
+            .expect("native values should write");
+        column.close().expect("native column should close");
+
+        let mut column = row_group
+            .next_column()
+            .expect("binary column should open")
+            .expect("binary column should exist");
+        column
+            .typed::<ByteArrayType>()
+            .write_batch(&[ByteArray::from("a"), ByteArray::from("bb")], None, None)
+            .expect("binary values should write");
+        column.close().expect("binary column should close");
+
+        let mut column = row_group
+            .next_column()
+            .expect("fixed column should open")
+            .expect("fixed column should exist");
+        column
+            .typed::<FixedLenByteArrayType>()
+            .write_batch(
+                &[
+                    FixedLenByteArray::from(vec![1, 2, 3, 4]),
+                    FixedLenByteArray::from(vec![5, 6, 7, 8]),
+                ],
+                None,
+                None,
+            )
+            .expect("fixed values should write");
+        column.close().expect("fixed column should close");
+
+        let mut column = row_group
+            .next_column()
+            .expect("optional column should open")
+            .expect("optional column should exist");
+        column
+            .typed::<Int32Type>()
+            .write_batch(&[11, 13], Some(&[1, 1]), None)
+            .expect("optional values should write");
+        column.close().expect("optional column should close");
+
+        row_group
+            .close()
+            .expect("plain truncation row group should close");
+        writer
+            .into_inner()
+            .expect("plain truncation fixture should close")
+    }
+
     fn first_data_page(input: &[u8], column_index: usize) -> parquet2::page::DataPage {
         let mut cursor = Cursor::new(input);
         let metadata = read_metadata(&mut cursor).expect("fixture metadata should decode");
@@ -708,6 +792,26 @@ mod tests {
         let mut data_page = data_page.expect("fixture should contain a data page");
         data_page.buffer_mut().truncate(1);
         assert!(decode::read(&data_page, Some(&dictionary), 0).is_err());
+    }
+
+    #[test]
+    fn truncated_plain_pages_fail_before_returning_an_early_value() {
+        let input = plain_truncation_fixture();
+        for (column_index, retained_bytes) in [(0, 4), (1, 5), (2, 4)] {
+            let mut page = first_data_page(&input, column_index);
+            page.buffer_mut().truncate(retained_bytes);
+            assert!(
+                decode::read(&page, None, 0).is_err(),
+                "column {column_index} returned a value from a truncated page"
+            );
+        }
+
+        let mut optional = first_data_page(&input, 3);
+        *optional.buffer_mut() = vec![2, 0, 0, 0, 2, 1, 11, 0, 0, 0];
+        assert!(
+            decode::read(&optional, None, 0).is_err(),
+            "truncated optional definition levels returned an early value"
+        );
     }
 
     #[test]

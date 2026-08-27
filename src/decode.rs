@@ -295,8 +295,17 @@ fn dictionary_for_fixed(
     }
 }
 
-fn nth<T>(mut values: Vec<Option<T>>, index: usize) -> Result<Option<T>, Error> {
-    if index >= values.len() {
+fn nth<T>(
+    mut values: Vec<Option<T>>,
+    index: usize,
+    expected_values: usize,
+) -> Result<Option<T>, Error> {
+    if values.len() != expected_values {
+        return Err(Error::OutOfSpec(
+            "decoded data-page value count differs from its header".to_owned(),
+        ));
+    }
+    if index >= expected_values {
         return Err(Error::OutOfSpec(
             "data page contains fewer rows than declared".to_owned(),
         ));
@@ -310,7 +319,12 @@ fn read_i32(
     dictionary: Option<&DecodedDictionary>,
     index: usize,
 ) -> Result<Option<RawCell>, Error> {
-    Ok(nth(native_values(page, dictionary_for_i32(dictionary)?)?, index)?.map(RawCell::Int32))
+    Ok(nth(
+        native_values(page, dictionary_for_i32(dictionary)?)?,
+        index,
+        page.num_values(),
+    )?
+    .map(RawCell::Int32))
 }
 
 #[inline(never)]
@@ -319,7 +333,12 @@ fn read_i64(
     dictionary: Option<&DecodedDictionary>,
     index: usize,
 ) -> Result<Option<RawCell>, Error> {
-    Ok(nth(native_values(page, dictionary_for_i64(dictionary)?)?, index)?.map(RawCell::Int64))
+    Ok(nth(
+        native_values(page, dictionary_for_i64(dictionary)?)?,
+        index,
+        page.num_values(),
+    )?
+    .map(RawCell::Int64))
 }
 
 #[inline(never)]
@@ -328,10 +347,12 @@ fn read_i96(
     dictionary: Option<&DecodedDictionary>,
     index: usize,
 ) -> Result<Option<RawCell>, Error> {
-    Ok(
-        nth(native_values(page, dictionary_for_i96(dictionary)?)?, index)?
-            .map(|_value| RawCell::Int96),
-    )
+    Ok(nth(
+        native_values(page, dictionary_for_i96(dictionary)?)?,
+        index,
+        page.num_values(),
+    )?
+    .map(|_value| RawCell::Int96))
 }
 
 #[inline(never)]
@@ -340,7 +361,12 @@ fn read_f32(
     dictionary: Option<&DecodedDictionary>,
     index: usize,
 ) -> Result<Option<RawCell>, Error> {
-    Ok(nth(native_values(page, dictionary_for_f32(dictionary)?)?, index)?.map(RawCell::Float))
+    Ok(nth(
+        native_values(page, dictionary_for_f32(dictionary)?)?,
+        index,
+        page.num_values(),
+    )?
+    .map(RawCell::Float))
 }
 
 #[inline(never)]
@@ -349,7 +375,12 @@ fn read_f64(
     dictionary: Option<&DecodedDictionary>,
     index: usize,
 ) -> Result<Option<RawCell>, Error> {
-    Ok(nth(native_values(page, dictionary_for_f64(dictionary)?)?, index)?.map(RawCell::Double))
+    Ok(nth(
+        native_values(page, dictionary_for_f64(dictionary)?)?,
+        index,
+        page.num_values(),
+    )?
+    .map(RawCell::Double))
 }
 
 #[inline(never)]
@@ -361,6 +392,7 @@ fn read_binary(
     Ok(nth(
         binary_values(page, dictionary_for_binary(dictionary)?)?,
         index,
+        page.num_values(),
     )?
     .map(RawCell::Bytes))
 }
@@ -374,6 +406,7 @@ fn read_fixed(
     Ok(nth(
         fixed_values(page, dictionary_for_fixed(dictionary)?)?,
         index,
+        page.num_values(),
     )?
     .map(RawCell::Bytes))
 }
@@ -385,7 +418,9 @@ pub(crate) fn read(
     index: usize,
 ) -> Result<RawCell, Error> {
     let value = match page.descriptor.primitive_type.physical_type {
-        PhysicalType::Boolean => nth(boolean_values(page)?, index)?.map(RawCell::Boolean),
+        PhysicalType::Boolean => {
+            nth(boolean_values(page)?, index, page.num_values())?.map(RawCell::Boolean)
+        }
         PhysicalType::Int32 => read_i32(page, dictionary, index)?,
         PhysicalType::Int64 => read_i64(page, dictionary, index)?,
         PhysicalType::Int96 => read_i96(page, dictionary, index)?,
