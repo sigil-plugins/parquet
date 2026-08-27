@@ -52,20 +52,26 @@ groups, 1,024 leaf columns, 1 KiB column paths, 1 MiB pages and decoded cell
 values, and 32 MiB uncompressed column chunks. Parser and codec errors are
 collapsed to stable messages rather than exposing input-derived details.
 
+Install the official immutable release and add it to the current project:
+
+```bash
+sigil plugin install parquet@0.1.0
+sigil plugin add parquet@0.1.0
+```
+
 Build, test both compression fixtures, validate the component, and pack a
-local candidate:
+local development archive:
 
 ```bash
 just check
 just dist
 ```
 
-Install that unpublished package into the per-user store before adding its
-project lock:
+Install that unpublished archive only for local validation; local-path packages
+are cache-only and cannot authorize a project lock:
 
 ```bash
 sigil plugin install --path dist/parquet-0.1.0.sigil-plugin.tar.zst
-sigil plugin add parquet@0.1.0
 ```
 
 The checked-in `parquet-format-safe` 0.2.4 source splits one generated Thrift
@@ -76,6 +82,6 @@ by this decoder. Together these patches keep the compiled component within
 Sigil's fixed structural-nesting limit, make corrupt input fail closed, and
 avoid rewriting the finished Wasm binary.
 
-This repository is a local candidate until its source, exact component/package
-bytes, release policy, and official namespace publication receive the separate
-human gate required by Sigil's immutable plugin process.
+Official versions are published once from independently reviewed candidate
+artifacts by the repository's keyless GitHub OIDC workflow. Public tags and
+release assets are immutable; a conflicting release burns that SemVer.
