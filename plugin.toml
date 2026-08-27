@@ -1,12 +1,12 @@
 schema_version = 1
-name = "example"
+name = "parquet"
 version = "0.1.0"
-description = "pure Sigil plugin template"
+description = "bounded typed scalar reader for Parquet files in Sigil"
 license = "MIT"
 
 [component]
 file = "plugin.wasm"
-entrypoint = "example:plugin/api@1.0.0"
+entrypoint = "sigil:parquet/reader@0.1.0"
 
 [requires]
 sigil = ">=0.31.0, <1.0.0"
@@ -15,5 +15,4 @@ host_api = "^1.0"
 [capabilities]
 
 [repository]
-source = "github:owner/example"
-
+source = "github:sigil-plugins/parquet"

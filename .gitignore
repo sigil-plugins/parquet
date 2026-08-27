@@ -2,3 +2,4 @@
 /dist/
 /plugin.wasm
 __pycache__/
+/target

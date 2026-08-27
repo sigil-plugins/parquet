@@ -1,0 +1,27 @@
+[package]
+name = "sigil-plugin-parquet"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bytes = { version = "=1.12.1", default-features = false }
+parquet2 = { version = "=0.17.2", default-features = false, features = ["snappy"] }
+wit-bindgen = { version = "=0.57.1", default-features = false, features = ["macros", "realloc"] }
+
+[patch.crates-io]
+parquet-format-safe = { path = "vendor/parquet-format-safe" }
+parquet2 = { path = "vendor/parquet2" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[dev-dependencies]
+parquet = { version = "=59.2.0", default-features = false, features = ["snap"] }

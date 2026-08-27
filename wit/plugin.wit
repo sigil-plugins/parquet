@@ -1,10 +1,73 @@
-package example:plugin@1.0.0;
+package sigil:parquet@0.1.0;
 
-interface api {
-  echo-u32: func(value: u32) -> u32;
+interface reader {
+  enum error-class {
+    invalid-request,
+    invalid-format,
+    not-found,
+    unsupported,
+    limit,
+    decode,
+  }
+
+  record error {
+    class: error-class,
+    message: string,
+  }
+
+  record column-info {
+    path: string,
+    physical-type: string,
+    logical-type: option<string>,
+    nullable: bool,
+    supported: bool,
+  }
+
+  record file-info {
+    rows: u64,
+    row-groups: u32,
+    columns: list<column-info>,
+  }
+
+  record read-options {
+    column: string,
+    row: u64,
+  }
+
+  enum time-unit {
+    milliseconds,
+    microseconds,
+  }
+
+  record decimal-value {
+    unscaled: list<u8>,
+    precision: u32,
+    scale: s32,
+  }
+
+  record temporal-value {
+    value: s64,
+    unit: time-unit,
+  }
+
+  variant cell {
+    null,
+    boolean(bool),
+    signed(s64),
+    unsigned(u64),
+    floating(f64),
+    text(string),
+    bytes(list<u8>),
+    decimal(decimal-value),
+    date(s32),
+    time(temporal-value),
+    timestamp(temporal-value),
+  }
+
+  inspect: func(input: list<u8>) -> result<file-info, error>;
+  read-cell: func(input: list<u8>, options: read-options) -> result<cell, error>;
 }
 
-world plugin {
-  export api;
+world parquet {
+  export reader;
 }
-

@@ -1,46 +1,72 @@
-# Sigil plugin template
+# Sigil Parquet plugin
 
-This public template is the minimal standalone shape for a pure Sigil
-WebAssembly Component Model plugin. It deliberately has no `sigil-plugin`
-topic: repositories created from it become discoverable only after their
-source, manifest, release policy, and canonical package are reviewed.
+`wasm.parquet` is a bounded, read-only Parquet inspector and typed scalar
+reader for Sigil scenarios. Version 0.1 accepts complete Parquet file bytes,
+reports flat leaf-column metadata, and reads one cell selected by column path
+and zero-based row index.
 
-Before publishing a derived plugin:
+It composes directly with byte-producing plugins such as `wasm.s3`:
 
-1. Replace the example package/interface/name/source in `wit/`, `src/`, and
-   `plugin.toml`.
-2. Keep the plugin capability-free unless it imports a ratified Sigil host
-   contract and declares exactly the matching capabilities.
-3. Run `just check` with `wasm-tools 1.252.0`, then run `just sigil-check`
-   with a Sigil release that provides the `plugin` command.
-4. Configure the protected `release` environment to allow only `main` and to
-   require an explicit human reviewer.
-5. Dispatch `prepare-release` from the reviewed `main` commit, reproduce its
-   package, `SHA256SUMS`, and canonical `release-manifest.json` locally, then
-   review the exact candidate run and digests.
-6. Dispatch `publish-release` once with that approved tuple. Existing or
-   partial tags, releases, or attestations burn the SemVer; recovery always
-   prepares and approves a new version.
+```lua
+local s3 = require("wasm.s3")
+local parquet = require("wasm.parquet")
 
-The component is built from checked-in WIT and core WAT, then validated and
-packed into Sigil's canonical P3 archive:
+local bytes, get_err = s3["get-object"]({
+  endpoint = "minio",
+  bucket = "results",
+  key = "run/output.parquet",
+  ["max-bytes"] = 4 * 1024 * 1024,
+})
+expect(bytes ~= nil, get_err and get_err.message)
+
+local cell, read_err = parquet["read-cell"](bytes, {
+  column = "total",
+  row = 0,
+})
+expect(cell ~= nil, read_err and read_err.message)
+expect(cell.tag == "floating")
+expect(cell.value == 27.75)
+```
+
+Add both project locks before evaluating the scenario:
+
+```bash
+sigil plugin add s3@0.1.0
+sigil plugin add parquet@0.1.0
+```
+
+The plugin imports no host capability. The calling scenario still declares the
+capabilities inferred from its `require` calls, including `wasm.s3` and
+`wasm.parquet`; only S3 needs a network grant.
+
+The initial decoder supports required or optional, non-repeated scalar columns,
+plain and dictionary encoding, uncompressed pages, and Snappy compression. It
+preserves booleans, signed and unsigned integers, floats, UTF-8 text, bytes,
+decimals, dates, and millisecond or microsecond time/timestamp values. Nested
+or repeated columns, INT96, nanosecond temporal values, UUID/interval values,
+external column chunks, other encodings, and other compression codecs fail
+explicitly as unsupported.
+
+Bounds are part of the contract: 16 MiB input, one million rows, 4,096 row
+groups, 1,024 leaf columns, 1 KiB column paths, 1 MiB pages and decoded cell
+values, and 32 MiB uncompressed column chunks. Parser and codec errors are
+collapsed to stable messages rather than exposing input-derived details.
+
+Build, test both compression fixtures, validate the component, and pack a
+local candidate:
 
 ```bash
 just check
 just dist
-just sigil-check
 ```
 
-The workflows pin `wasm-tools`, zstd 1.5.7 source, and every Action commit. The
-small compatibility packer is byte-identical to Sigil and avoids depending on
-an unreleased Sigil command. The publisher uses only the ephemeral GitHub token
-and GitHub OIDC: there is no long-lived signing secret. Its exact
-`workflow_dispatch`/`main`/`release` identity is part of the Sigstore proof.
+The checked-in `parquet-format-safe` 0.2.4 source splits one generated Thrift
+metadata reader into non-inlined helpers. The checked-in `parquet2` 0.17.2
+source replaces its 33-way const-generic `u32` bit-unpack dispatcher with an
+equivalent bounded dynamic loop. Together these small patches keep the compiled
+component within Sigil's fixed structural-nesting limit without weakening host
+validation or rewriting the finished Wasm binary.
 
-The immutable release contains exactly `NAME-VERSION.sigil-plugin.tar.zst`,
-`SHA256SUMS`, and `release-manifest.json`; the attestation is read through
-GitHub's artifact-attestations API. Sigil's closed official provenance profile
-applies only to reviewed `sigil-plugins/*` repositories. A derived third-party
-repository remains third-party evidence even if it uses the same workflow. A
-capability request is not a capability grant, and installation is not a
-project evaluation lock.
+This repository is a local candidate until its source, exact component/package
+bytes, release policy, and official namespace publication receive the separate
+human gate required by Sigil's immutable plugin process.
