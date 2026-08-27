@@ -21,7 +21,7 @@ expect(bytes ~= nil, get_err and get_err.message)
 
 local cell, read_err = parquet["read-cell"](bytes, {
   column = "total",
-  row = 0,
+  row = 1,
 })
 expect(cell ~= nil, read_err and read_err.message)
 expect(cell.tag == "floating")
