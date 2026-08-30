@@ -1,7 +1,7 @@
 schema_version = 1
 name = "parquet"
 version = "0.1.1"
-description = "bounded typed scalar and column reader for Parquet files in Sigil"
+description = "bounded typed scalar, column, and projected-row reader for Parquet files in Sigil"
 license = "MIT"
 
 [component]

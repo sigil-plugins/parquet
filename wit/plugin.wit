@@ -40,6 +40,12 @@ interface reader {
     limit: u64,
   }
 
+  record row-read-options {
+    columns: list<string>,
+    offset: u64,
+    limit: u64,
+  }
+
   enum time-unit {
     milliseconds,
     microseconds,
@@ -70,9 +76,19 @@ interface reader {
     timestamp(temporal-value),
   }
 
+  record row {
+    cells: list<cell>,
+  }
+
+  record row-batch {
+    columns: list<string>,
+    rows: list<row>,
+  }
+
   inspect: func(input: list<u8>) -> result<file-info, error>;
   read-cell: func(input: list<u8>, options: read-options) -> result<cell, error>;
   read-column: func(input: list<u8>, options: column-read-options) -> result<list<cell>, error>;
+  read-rows: func(input: list<u8>, options: row-read-options) -> result<row-batch, error>;
 }
 
 world parquet {

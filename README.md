@@ -1,10 +1,11 @@
 # Sigil Parquet plugin
 
-`wasm.parquet` is a bounded, read-only Parquet inspector and typed scalar or
-column reader for Sigil scenarios. The unreleased 0.1.1 source contract accepts
-complete Parquet file bytes, reports flat leaf-column metadata, reads one cell,
-or reads an exact offset/limit window from one column. The public immutable
-release remains 0.1.0 and exposes `inspect` plus `read-cell` only.
+`wasm.parquet` is a bounded, read-only Parquet inspector and typed scalar,
+column, or projected-row reader for Sigil scenarios. The unreleased 0.1.1
+source contract accepts complete Parquet file bytes, reports flat leaf-column
+metadata, reads one cell, reads one exact column window, or reads an exact row
+window for an ordered projection. The public immutable release remains 0.1.0
+and exposes `inspect` plus `read-cell` only.
 
 It composes directly with byte-producing plugins such as `wasm.s3`:
 
@@ -45,12 +46,32 @@ for _, cell in ipairs(cells) do
 end
 ```
 
+The same candidate can decode a small comparison matrix in one call. Column
+identity is returned once in `batch.columns`; every positional row cell uses
+that exact order:
+
+```lua
+local batch, rows_err = parquet["read-rows"](bytes, {
+  columns = { "order_id", "status", "event_epoch" },
+  offset = 0,
+  limit = 3,
+})
+expect(batch ~= nil, rows_err and rows_err.message)
+expect(batch.columns[1] == "order_id")
+expect(batch.columns[2] == "status")
+expect(batch.columns[3] == "event_epoch")
+expect(#batch.rows == 3)
+expect(batch.rows[1].cells[1].tag == "signed")
+```
+
 Windows are exact: `offset == rows, limit == 0` succeeds, while any nonempty
 window beyond the end fails as `not-found`; a resource bound fails as `limit`
-and never returns a short list. The decoder resolves the selected flat column
-once, skips unrelated columns, and decodes each overlapping page at most once.
-It preserves the existing tagged NULL, DECIMAL, and timestamp values without
-normalising decimal scale or temporal units.
+and never returns a short result. A row projection must be nonempty and ordered;
+duplicate, unknown, nested, repeated, or unsupported columns fail before page
+decode. The decoder resolves every selected flat column first, skips unrelated
+columns, decodes each selected overlapping page at most once, and performs one
+linear column-to-row transpose. It preserves the existing tagged NULL, DECIMAL,
+and timestamp values without normalising decimal scale or temporal units.
 
 Add both project locks before evaluating the scenario:
 
@@ -74,10 +95,12 @@ explicitly as unsupported.
 Bounds are part of the contract: 16 MiB input, one million rows, 4,096 row
 groups, 1,024 leaf columns, 1 KiB column paths, 1 MiB pages and decoded cell
 values, and 32 MiB uncompressed column chunks. A `read-column` result is also
-limited to 100,000 cells and 16 MiB of accounted decoded output. All arithmetic
-and allocation bounds are checked before a value is exposed. Parser and codec
-errors are collapsed to stable messages rather than exposing input-derived
-details.
+limited to 100,000 cells and 16 MiB of accounted decoded output. A `read-rows`
+result is limited to 128 selected columns, 10,000 rows, 100,000 cells, 8 MiB of
+structural assembly, and 16 MiB including cell payloads. Counts, multiplication,
+addition, allocation, and aggregate bytes are checked before a value is
+exposed. Parser and codec errors are collapsed to stable messages rather than
+exposing input-derived details.
 
 The 16 MiB complete-file input cap deliberately remains fixed in 0.1.1. This
 pure plugin has no route or grant from which to derive a network-style byte
