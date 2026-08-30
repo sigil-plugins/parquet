@@ -12,6 +12,21 @@ use crate::dictionary::{
     BinaryDictionary, DecodedDictionary, FixedDictionary, PrimitiveDictionary,
 };
 
+#[cfg(test)]
+thread_local! {
+    static RANGE_DECODE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_range_decode_calls() {
+    RANGE_DECODE_CALLS.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn range_decode_calls() -> usize {
+    RANGE_DECODE_CALLS.get()
+}
+
 #[derive(Debug)]
 pub(crate) enum RawCell {
     Null,
@@ -295,139 +310,199 @@ fn dictionary_for_fixed(
     }
 }
 
-fn nth<T>(
-    mut values: Vec<Option<T>>,
-    index: usize,
+fn window<T>(
+    values: Vec<Option<T>>,
+    offset: usize,
+    limit: usize,
     expected_values: usize,
-) -> Result<Option<T>, Error> {
+) -> Result<Vec<Option<T>>, Error> {
     if values.len() != expected_values {
         return Err(Error::OutOfSpec(
             "decoded data-page value count differs from its header".to_owned(),
         ));
     }
-    if index >= expected_values {
+    let end = offset.checked_add(limit).ok_or(Error::WouldOverAllocate)?;
+    if end > expected_values {
+        return Err(Error::OutOfSpec(
+            "data-page window exceeds its declared value count".to_owned(),
+        ));
+    }
+    let selected = values
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect::<Vec<_>>();
+    if selected.len() != limit {
         return Err(Error::OutOfSpec(
             "data page contains fewer rows than declared".to_owned(),
         ));
     }
-    Ok(values.swap_remove(index))
+    Ok(selected)
 }
 
 #[inline(never)]
-fn read_i32(
+fn read_i32_range(
     page: &DataPage,
     dictionary: Option<&DecodedDictionary>,
-    index: usize,
-) -> Result<Option<RawCell>, Error> {
-    Ok(nth(
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<Option<RawCell>>, Error> {
+    Ok(window(
         native_values(page, dictionary_for_i32(dictionary)?)?,
-        index,
+        offset,
+        limit,
         page.num_values(),
     )?
-    .map(RawCell::Int32))
+    .into_iter()
+    .map(|value| value.map(RawCell::Int32))
+    .collect())
 }
 
 #[inline(never)]
-fn read_i64(
+fn read_i64_range(
     page: &DataPage,
     dictionary: Option<&DecodedDictionary>,
-    index: usize,
-) -> Result<Option<RawCell>, Error> {
-    Ok(nth(
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<Option<RawCell>>, Error> {
+    Ok(window(
         native_values(page, dictionary_for_i64(dictionary)?)?,
-        index,
+        offset,
+        limit,
         page.num_values(),
     )?
-    .map(RawCell::Int64))
+    .into_iter()
+    .map(|value| value.map(RawCell::Int64))
+    .collect())
 }
 
 #[inline(never)]
-fn read_i96(
+fn read_i96_range(
     page: &DataPage,
     dictionary: Option<&DecodedDictionary>,
-    index: usize,
-) -> Result<Option<RawCell>, Error> {
-    Ok(nth(
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<Option<RawCell>>, Error> {
+    Ok(window(
         native_values(page, dictionary_for_i96(dictionary)?)?,
-        index,
+        offset,
+        limit,
         page.num_values(),
     )?
-    .map(|_value| RawCell::Int96))
+    .into_iter()
+    .map(|value| value.map(|_value| RawCell::Int96))
+    .collect())
 }
 
 #[inline(never)]
-fn read_f32(
+fn read_f32_range(
     page: &DataPage,
     dictionary: Option<&DecodedDictionary>,
-    index: usize,
-) -> Result<Option<RawCell>, Error> {
-    Ok(nth(
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<Option<RawCell>>, Error> {
+    Ok(window(
         native_values(page, dictionary_for_f32(dictionary)?)?,
-        index,
+        offset,
+        limit,
         page.num_values(),
     )?
-    .map(RawCell::Float))
+    .into_iter()
+    .map(|value| value.map(RawCell::Float))
+    .collect())
 }
 
 #[inline(never)]
-fn read_f64(
+fn read_f64_range(
     page: &DataPage,
     dictionary: Option<&DecodedDictionary>,
-    index: usize,
-) -> Result<Option<RawCell>, Error> {
-    Ok(nth(
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<Option<RawCell>>, Error> {
+    Ok(window(
         native_values(page, dictionary_for_f64(dictionary)?)?,
-        index,
+        offset,
+        limit,
         page.num_values(),
     )?
-    .map(RawCell::Double))
+    .into_iter()
+    .map(|value| value.map(RawCell::Double))
+    .collect())
 }
 
 #[inline(never)]
-fn read_binary(
+fn read_binary_range(
     page: &DataPage,
     dictionary: Option<&DecodedDictionary>,
-    index: usize,
-) -> Result<Option<RawCell>, Error> {
-    Ok(nth(
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<Option<RawCell>>, Error> {
+    Ok(window(
         binary_values(page, dictionary_for_binary(dictionary)?)?,
-        index,
+        offset,
+        limit,
         page.num_values(),
     )?
-    .map(RawCell::Bytes))
+    .into_iter()
+    .map(|value| value.map(RawCell::Bytes))
+    .collect())
 }
 
 #[inline(never)]
-fn read_fixed(
+fn read_fixed_range(
     page: &DataPage,
     dictionary: Option<&DecodedDictionary>,
-    index: usize,
-) -> Result<Option<RawCell>, Error> {
-    Ok(nth(
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<Option<RawCell>>, Error> {
+    Ok(window(
         fixed_values(page, dictionary_for_fixed(dictionary)?)?,
-        index,
+        offset,
+        limit,
         page.num_values(),
     )?
-    .map(RawCell::Bytes))
+    .into_iter()
+    .map(|value| value.map(RawCell::Bytes))
+    .collect())
 }
 
 #[inline(never)]
+pub(crate) fn read_range(
+    page: &DataPage,
+    dictionary: Option<&DecodedDictionary>,
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<RawCell>, Error> {
+    #[cfg(test)]
+    RANGE_DECODE_CALLS.set(RANGE_DECODE_CALLS.get() + 1);
+
+    let values = match page.descriptor.primitive_type.physical_type {
+        PhysicalType::Boolean => window(boolean_values(page)?, offset, limit, page.num_values())?
+            .into_iter()
+            .map(|value| value.map(RawCell::Boolean))
+            .collect(),
+        PhysicalType::Int32 => read_i32_range(page, dictionary, offset, limit)?,
+        PhysicalType::Int64 => read_i64_range(page, dictionary, offset, limit)?,
+        PhysicalType::Int96 => read_i96_range(page, dictionary, offset, limit)?,
+        PhysicalType::Float => read_f32_range(page, dictionary, offset, limit)?,
+        PhysicalType::Double => read_f64_range(page, dictionary, offset, limit)?,
+        PhysicalType::ByteArray => read_binary_range(page, dictionary, offset, limit)?,
+        PhysicalType::FixedLenByteArray(_) => read_fixed_range(page, dictionary, offset, limit)?,
+    };
+    Ok(values
+        .into_iter()
+        .map(|value| value.unwrap_or(RawCell::Null))
+        .collect())
+}
+
+#[inline(never)]
+#[cfg(test)]
 pub(crate) fn read(
     page: &DataPage,
     dictionary: Option<&DecodedDictionary>,
     index: usize,
 ) -> Result<RawCell, Error> {
-    let value = match page.descriptor.primitive_type.physical_type {
-        PhysicalType::Boolean => {
-            nth(boolean_values(page)?, index, page.num_values())?.map(RawCell::Boolean)
-        }
-        PhysicalType::Int32 => read_i32(page, dictionary, index)?,
-        PhysicalType::Int64 => read_i64(page, dictionary, index)?,
-        PhysicalType::Int96 => read_i96(page, dictionary, index)?,
-        PhysicalType::Float => read_f32(page, dictionary, index)?,
-        PhysicalType::Double => read_f64(page, dictionary, index)?,
-        PhysicalType::ByteArray => read_binary(page, dictionary, index)?,
-        PhysicalType::FixedLenByteArray(_) => read_fixed(page, dictionary, index)?,
-    };
-    Ok(value.unwrap_or(RawCell::Null))
+    read_range(page, dictionary, index, 1)?
+        .pop()
+        .ok_or_else(|| Error::OutOfSpec("data-page cell window is empty".to_owned()))
 }

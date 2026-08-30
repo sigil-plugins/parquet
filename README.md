@@ -1,9 +1,10 @@
 # Sigil Parquet plugin
 
-`wasm.parquet` is a bounded, read-only Parquet inspector and typed scalar
-reader for Sigil scenarios. Version 0.1 accepts complete Parquet file bytes,
-reports flat leaf-column metadata, and reads one cell selected by column path
-and zero-based row index.
+`wasm.parquet` is a bounded, read-only Parquet inspector and typed scalar or
+column reader for Sigil scenarios. The unreleased 0.1.1 source contract accepts
+complete Parquet file bytes, reports flat leaf-column metadata, reads one cell,
+or reads an exact offset/limit window from one column. The public immutable
+release remains 0.1.0 and exposes `inspect` plus `read-cell` only.
 
 It composes directly with byte-producing plugins such as `wasm.s3`:
 
@@ -28,6 +29,29 @@ expect(cell.tag == "floating")
 expect(cell.value == 27.75)
 ```
 
+The 0.1.1 candidate adds a typed column window without reparsing the file or
+redecoding a page for every cell:
+
+```lua
+local cells, column_err = parquet["read-column"](bytes, {
+  column = "event_epoch",
+  offset = 0,
+  limit = 100,
+})
+expect(cells ~= nil, column_err and column_err.message)
+for _, cell in ipairs(cells) do
+  expect(cell.tag == "signed")
+  expect(cell.value >= 1_000_000_000 and cell.value <= 9_999_999_999)
+end
+```
+
+Windows are exact: `offset == rows, limit == 0` succeeds, while any nonempty
+window beyond the end fails as `not-found`; a resource bound fails as `limit`
+and never returns a short list. The decoder resolves the selected flat column
+once, skips unrelated columns, and decodes each overlapping page at most once.
+It preserves the existing tagged NULL, DECIMAL, and timestamp values without
+normalising decimal scale or temporal units.
+
 Add both project locks before evaluating the scenario:
 
 ```bash
@@ -49,10 +73,18 @@ explicitly as unsupported.
 
 Bounds are part of the contract: 16 MiB input, one million rows, 4,096 row
 groups, 1,024 leaf columns, 1 KiB column paths, 1 MiB pages and decoded cell
-values, and 32 MiB uncompressed column chunks. Parser and codec errors are
-collapsed to stable messages rather than exposing input-derived details.
+values, and 32 MiB uncompressed column chunks. A `read-column` result is also
+limited to 100,000 cells and 16 MiB of accounted decoded output. All arithmetic
+and allocation bounds are checked before a value is exposed. Parser and codec
+errors are collapsed to stable messages rather than exposing input-derived
+details.
 
-Install the official immutable release and add it to the current project:
+The 16 MiB complete-file input cap deliberately remains fixed in 0.1.1. This
+pure plugin has no route or grant from which to derive a network-style byte
+allowance; larger complete files or range-backed reads need a Sigil-owned
+resource-limit design rather than an invented Parquet network grant.
+
+Install the official immutable 0.1.0 release and add it to the current project:
 
 ```bash
 sigil plugin install parquet@0.1.0
@@ -71,7 +103,7 @@ Install that unpublished archive only for local validation; local-path packages
 are cache-only and cannot authorize a project lock:
 
 ```bash
-sigil plugin install --path dist/parquet-0.1.0.sigil-plugin.tar.zst
+sigil plugin install --path dist/parquet-0.1.1.sigil-plugin.tar.zst
 ```
 
 The checked-in `parquet-format-safe` 0.2.4 source splits one generated Thrift

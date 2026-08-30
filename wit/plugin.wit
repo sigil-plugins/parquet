@@ -1,4 +1,4 @@
-package sigil:parquet@0.1.0;
+package sigil:parquet@0.1.1;
 
 interface reader {
   enum error-class {
@@ -34,6 +34,12 @@ interface reader {
     row: u64,
   }
 
+  record column-read-options {
+    column: string,
+    offset: u64,
+    limit: u64,
+  }
+
   enum time-unit {
     milliseconds,
     microseconds,
@@ -66,6 +72,7 @@ interface reader {
 
   inspect: func(input: list<u8>) -> result<file-info, error>;
   read-cell: func(input: list<u8>, options: read-options) -> result<cell, error>;
+  read-column: func(input: list<u8>, options: column-read-options) -> result<list<cell>, error>;
 }
 
 world parquet {
