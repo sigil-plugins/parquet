@@ -152,6 +152,7 @@ fn converted(value: RawCell, converted_type: PrimitiveConvertedType) -> Result<C
     }
 }
 
+#[inline(never)]
 pub(crate) fn convert(value: RawCell, primitive_type: &PrimitiveType) -> Result<Cell, Error> {
     if matches!(value, RawCell::Null) {
         return Ok(Cell::Null);
