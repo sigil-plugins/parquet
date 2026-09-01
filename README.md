@@ -46,6 +46,17 @@ for _, cell in ipairs(cells) do
 end
 ```
 
+| Public 0.1.0 | Unpublished 0.1.1 source candidate |
+|---|---|
+| `inspect` and `read-cell` | preserves both and adds `read-column` plus projected `read-rows` |
+| one cell per decode call | one exact typed window per call, parsing the file once |
+| fixed 16 MiB complete-file cap | the same fixed cap; no ambient or invented network grant |
+
+The candidate requires Sigil 0.31.0 or newer. It has no official package asset,
+so do not use `sigil plugin install parquet@0.1.1` or add that identity to a
+project lock until a separately authorized release is published and verified.
+The local archive command below is build-from-source/test-only.
+
 The same candidate can decode a small comparison matrix in one call. Column
 identity is returned once in `batch.columns`; every positional row cell uses
 that exact order:
