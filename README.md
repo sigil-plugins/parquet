@@ -1,11 +1,10 @@
 # Sigil Parquet plugin
 
 `wasm.parquet` is a bounded, read-only Parquet inspector and typed scalar,
-column, or projected-row reader for Sigil scenarios. The unreleased 0.1.1
-source contract accepts complete Parquet file bytes, reports flat leaf-column
-metadata, reads one cell, reads one exact column window, or reads an exact row
-window for an ordered projection. The public immutable release remains 0.1.0
-and exposes `inspect` plus `read-cell` only.
+column, or projected-row reader for Sigil scenarios. Public stable 0.1.1
+accepts complete Parquet file bytes, reports flat leaf-column metadata, reads
+one cell, reads one exact column window, or reads an exact row window for an
+ordered projection.
 
 It composes directly with byte-producing plugins such as `wasm.s3`:
 
@@ -83,11 +82,13 @@ columns, decodes each selected overlapping page at most once, and performs one
 linear column-to-row transpose. It preserves the existing tagged NULL, DECIMAL,
 and timestamp values without normalising decimal scale or temporal units.
 
-Add both project locks before evaluating the scenario:
+The composition example above deliberately uses the public stable S3 0.1.0
+endpoint API; Parquet 0.1.1 accepts its byte-exact output. Add both exact
+project locks before evaluating that example:
 
 ```bash
 sigil plugin add s3@0.1.0
-sigil plugin add parquet@0.1.0
+sigil plugin add parquet@0.1.1
 ```
 
 The plugin imports no host capability. The calling scenario still declares the
