@@ -13,9 +13,9 @@ local s3 = require("wasm.s3")
 local parquet = require("wasm.parquet")
 
 local bytes, get_err = s3["get-object"]({
-  endpoint = "minio",
   bucket = "results",
   key = "run/output.parquet",
+  auth = { tag = "sigv4", value = "object-store-read" },
   ["max-bytes"] = 4 * 1024 * 1024,
 })
 expect(bytes ~= nil, get_err and get_err.message)
@@ -82,12 +82,14 @@ columns, decodes each selected overlapping page at most once, and performs one
 linear column-to-row transpose. It preserves the existing tagged NULL, DECIMAL,
 and timestamp values without normalising decimal scale or temporal units.
 
-The composition example above deliberately uses the public stable S3 0.1.0
-endpoint API; Parquet 0.1.1 accepts its byte-exact output. Add both exact
-project locks before evaluating that example:
+The composition example above uses the public stable S3 0.3.0 tagged-auth API;
+Parquet 0.1.1 accepts its byte-exact output. The complete pairing requires
+stable Sigil 0.33.2 or newer because S3 0.3.0 requires Host API 1.2; Parquet
+itself still requires only Sigil 0.31.0 or newer and Host API 1.0. Add both
+exact project locks before evaluating that example:
 
 ```bash
-sigil plugin add s3@0.1.0
+sigil plugin add s3@0.3.0
 sigil plugin add parquet@0.1.1
 ```
 

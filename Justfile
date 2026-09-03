@@ -13,7 +13,10 @@ build:
 fixture-check:
     scratch="$(mktemp)"; trap 'rm -f "$scratch"' EXIT; cargo run --quiet --locked --example write_fixture -- "$scratch"; cmp tests/fixtures/sample.snappy.parquet "$scratch"
 
-check: fixture-check
+compatibility:
+    {{python}} scripts/check-compatibility.py
+
+check: fixture-check compatibility
     cargo fmt --all -- --check
     cargo test --locked
     cargo clippy --all-targets --locked -- -D warnings
