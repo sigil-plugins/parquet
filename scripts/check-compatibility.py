@@ -32,8 +32,9 @@ def main() -> None:
         "S3 0.3.0 requires Host API 1.2",
         'auth = { tag = "sigv4", value = "object-store-read" }',
         "sigil plugin add s3@0.3.0",
-        "sigil plugin add parquet@0.1.1",
-        "unreleased 0.2.0 candidate",
+        "Public stable 0.2.0",
+        "sigil plugin install parquet@0.2.0",
+        "sigil plugin add parquet@0.2.0",
         '["is-adjusted-to-utc"] == false',
         "dist/parquet-0.2.0.sigil-plugin.tar.zst",
         "just candidate-check",
@@ -44,6 +45,8 @@ def main() -> None:
     stale = (
         "public stable S3 0.1.0 endpoint API",
         "sigil plugin add s3@0.1.0",
+        "Public stable 0.1.1",
+        "unreleased 0.2.0 candidate",
     )
     for claim in stale:
         if claim in readme:
