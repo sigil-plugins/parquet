@@ -54,7 +54,12 @@ fn decimal(value: RawCell, precision: usize, scale: usize) -> Result<Cell, Error
     }))
 }
 
-fn temporal(value: RawCell, unit: TimeUnit, timestamp: bool) -> Result<Cell, Error> {
+fn temporal(
+    value: RawCell,
+    unit: TimeUnit,
+    is_adjusted_to_utc: bool,
+    timestamp: bool,
+) -> Result<Cell, Error> {
     let value = match value {
         RawCell::Int32(value) => i64::from(value),
         RawCell::Int64(value) => value,
@@ -65,7 +70,11 @@ fn temporal(value: RawCell, unit: TimeUnit, timestamp: bool) -> Result<Cell, Err
         TimeUnit::Microseconds => OutputTimeUnit::Microseconds,
         TimeUnit::Nanoseconds => return Err(unsupported()),
     };
-    let value = TemporalValue { value, unit };
+    let value = TemporalValue {
+        value,
+        unit,
+        is_adjusted_to_utc,
+    };
     if timestamp {
         Ok(Cell::Timestamp(value))
     } else {
@@ -112,8 +121,14 @@ fn logical(value: RawCell, logical_type: PrimitiveLogicalType) -> Result<Cell, E
             RawCell::Int32(value) => Ok(Cell::Date(value)),
             _ => Err(mismatched()),
         },
-        PrimitiveLogicalType::Time { unit, .. } => temporal(value, unit, false),
-        PrimitiveLogicalType::Timestamp { unit, .. } => temporal(value, unit, true),
+        PrimitiveLogicalType::Time {
+            unit,
+            is_adjusted_to_utc,
+        } => temporal(value, unit, is_adjusted_to_utc, false),
+        PrimitiveLogicalType::Timestamp {
+            unit,
+            is_adjusted_to_utc,
+        } => temporal(value, unit, is_adjusted_to_utc, true),
         PrimitiveLogicalType::Integer(integer_type) => integer(value, integer_type),
         PrimitiveLogicalType::Unknown | PrimitiveLogicalType::Uuid => Err(unsupported()),
     }
@@ -136,10 +151,17 @@ fn converted(value: RawCell, converted_type: PrimitiveConvertedType) -> Result<C
             RawCell::Int32(value) => Ok(Cell::Date(value)),
             _ => Err(mismatched()),
         },
-        PrimitiveConvertedType::TimeMillis => temporal(value, TimeUnit::Milliseconds, false),
-        PrimitiveConvertedType::TimeMicros => temporal(value, TimeUnit::Microseconds, false),
-        PrimitiveConvertedType::TimestampMillis => temporal(value, TimeUnit::Milliseconds, true),
-        PrimitiveConvertedType::TimestampMicros => temporal(value, TimeUnit::Microseconds, true),
+        // The Parquet backward-compatibility mapping defines every legacy
+        // temporal ConvertedType as UTC-normalized. LogicalType is handled
+        // above and carries its own authoritative true/false parameter.
+        PrimitiveConvertedType::TimeMillis => temporal(value, TimeUnit::Milliseconds, true, false),
+        PrimitiveConvertedType::TimeMicros => temporal(value, TimeUnit::Microseconds, true, false),
+        PrimitiveConvertedType::TimestampMillis => {
+            temporal(value, TimeUnit::Milliseconds, true, true)
+        }
+        PrimitiveConvertedType::TimestampMicros => {
+            temporal(value, TimeUnit::Microseconds, true, true)
+        }
         PrimitiveConvertedType::Uint8 => integer(value, IntegerType::UInt8),
         PrimitiveConvertedType::Uint16 => integer(value, IntegerType::UInt16),
         PrimitiveConvertedType::Uint32 => integer(value, IntegerType::UInt32),
