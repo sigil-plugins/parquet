@@ -1,0 +1,5 @@
+[plugins]
+allow_third_party = true
+
+[plugins.trust]
+install_allowlist = ["local:path"]

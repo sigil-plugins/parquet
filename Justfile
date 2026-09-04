@@ -8,10 +8,11 @@ build:
     root="$(pwd -P)"; cargo_home="${CARGO_HOME:-$HOME/.cargo}"; rustflags="${RUSTFLAGS:-} --remap-path-prefix=${root}=/workspace --remap-path-prefix=${cargo_home}=/cargo"; RUSTFLAGS="${rustflags# }" cargo build --release --target wasm32-unknown-unknown --locked
     {{wasm_tools}} component new target/wasm32-unknown-unknown/release/sigil_plugin_parquet.wasm -o plugin.wasm
     {{wasm_tools}} validate --features all plugin.wasm
-    {{wasm_tools}} component targets wit --world sigil:parquet/parquet@0.1.1 plugin.wasm
+    {{wasm_tools}} component targets wit --world sigil:parquet/parquet@0.2.0 plugin.wasm
 
 fixture-check:
     scratch="$(mktemp)"; trap 'rm -f "$scratch"' EXIT; cargo run --quiet --locked --example write_fixture -- "$scratch"; cmp tests/fixtures/sample.snappy.parquet "$scratch"
+    scratch="$(mktemp)"; trap 'rm -f "$scratch"' EXIT; cargo run --quiet --locked --example write_temporal_fixture -- "$scratch"; cmp tests/fixtures/temporal.snappy.parquet "$scratch"
 
 compatibility:
     {{python}} scripts/check-compatibility.py
@@ -25,6 +26,9 @@ check: fixture-check compatibility
 sigil-check: check
     {{sigil}} plugin validate plugin.toml
     {{sigil}} plugin inspect plugin.toml --format json
+
+candidate-check: check
+    fixture_hex="$(od -An -tx1 -v tests/fixtures/temporal.snappy.parquet | tr -d ' \n')"; {{sigil}} plugin test --path plugin.toml --scenario tests/scenarios/temporal-semantics.lua --config tests/candidate-policy.toml --allow-local --env "PARQUET_FIXTURE_HEX=${fixture_hex}" --seed 0000000000000000000000000000000000000000000000000000000000000000 --json
 
 dist: check
     mkdir -p dist

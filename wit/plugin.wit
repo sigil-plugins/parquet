@@ -1,4 +1,4 @@
-package sigil:parquet@0.1.1;
+package sigil:parquet@0.2.0;
 
 interface reader {
   enum error-class {
@@ -19,6 +19,7 @@ interface reader {
     path: string,
     physical-type: string,
     logical-type: option<string>,
+    is-adjusted-to-utc: option<bool>,
     nullable: bool,
     supported: bool,
   }
@@ -60,6 +61,7 @@ interface reader {
   record temporal-value {
     value: s64,
     unit: time-unit,
+    is-adjusted-to-utc: bool,
   }
 
   variant cell {

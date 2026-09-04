@@ -13,7 +13,7 @@ def main() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     expected = {
-        "version": "0.1.1",
+        "version": "0.2.0",
         "host_api": "^1.0",
         "sigil": ">=0.31.0, <1.0.0",
     }
@@ -33,6 +33,10 @@ def main() -> None:
         'auth = { tag = "sigv4", value = "object-store-read" }',
         "sigil plugin add s3@0.3.0",
         "sigil plugin add parquet@0.1.1",
+        "unreleased 0.2.0 candidate",
+        '["is-adjusted-to-utc"] == false',
+        "dist/parquet-0.2.0.sigil-plugin.tar.zst",
+        "just candidate-check",
     ):
         if claim not in readme:
             raise SystemExit(f"README is missing compatibility claim: {claim!r}")
@@ -44,6 +48,15 @@ def main() -> None:
     for claim in stale:
         if claim in readme:
             raise SystemExit(f"README retains stale primary composition: {claim!r}")
+
+    wit = (ROOT / "wit/plugin.wit").read_text(encoding="utf-8")
+    for declaration in (
+        "package sigil:parquet@0.2.0;",
+        "is-adjusted-to-utc: option<bool>,",
+        "is-adjusted-to-utc: bool,",
+    ):
+        if declaration not in wit:
+            raise SystemExit(f"WIT is missing temporal contract: {declaration!r}")
 
 
 if __name__ == "__main__":

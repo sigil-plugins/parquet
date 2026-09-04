@@ -162,6 +162,35 @@ fn logical_type_name(value: &PrimitiveLogicalType) -> String {
 }
 
 #[inline(never)]
+fn temporal_utc_adjustment(column: &ColumnDescriptor) -> Option<bool> {
+    let primitive = &column.descriptor.primitive_type;
+    // Writers may retain a legacy converted annotation even for a local
+    // parameterized LogicalType, so the LogicalType must win when present.
+    match primitive.logical_type {
+        Some(
+            PrimitiveLogicalType::Time {
+                is_adjusted_to_utc, ..
+            }
+            | PrimitiveLogicalType::Timestamp {
+                is_adjusted_to_utc, ..
+            },
+        ) => Some(is_adjusted_to_utc),
+        Some(_) => None,
+        // Parquet's backward-compatibility table defines each deprecated
+        // TIME/TIMESTAMP ConvertedType as UTC-normalized (`true`).
+        None => match primitive.converted_type {
+            Some(
+                PrimitiveConvertedType::TimeMillis
+                | PrimitiveConvertedType::TimeMicros
+                | PrimitiveConvertedType::TimestampMillis
+                | PrimitiveConvertedType::TimestampMicros,
+            ) => Some(true),
+            Some(_) | None => None,
+        },
+    }
+}
+
+#[inline(never)]
 fn is_supported(column: &ColumnDescriptor) -> bool {
     column.path_in_schema.len() == 1
         && column.descriptor.max_rep_level == 0
@@ -203,6 +232,7 @@ fn column_info(column: &ColumnDescriptor) -> ColumnInfo {
             .logical_type
             .as_ref()
             .map(logical_type_name),
+        is_adjusted_to_utc: temporal_utc_adjustment(column),
         nullable: column.descriptor.max_def_level > 0,
         supported: is_supported(column),
     }
@@ -1485,6 +1515,118 @@ mod tests {
             .expect("typed fidelity fixture should close")
     }
 
+    fn temporal_semantics_fixture() -> Vec<u8> {
+        let schema = Arc::new(
+            parse_message_type(
+                "message schema {
+                    REQUIRED INT64 utc_timestamp (TIMESTAMP(MILLIS,true));
+                    REQUIRED INT64 local_timestamp (TIMESTAMP(MILLIS,false));
+                    REQUIRED INT32 utc_time (TIME(MILLIS,true));
+                    REQUIRED INT32 local_time (TIME(MILLIS,false));
+                }",
+            )
+            .expect("temporal semantics schema should parse"),
+        );
+        let properties = Arc::new(
+            WriterProperties::builder()
+                .set_dictionary_enabled(false)
+                .build(),
+        );
+        let mut writer = SerializedFileWriter::new(Vec::new(), schema, properties)
+            .expect("temporal semantics writer should open");
+        let mut row_group = writer
+            .next_row_group()
+            .expect("temporal semantics row group should open");
+
+        for values in [
+            [1_788_484_682_000_i64, 1_788_484_682_001],
+            [1_788_484_682_000_i64, 1_788_484_682_001],
+        ] {
+            let mut column = row_group
+                .next_column()
+                .expect("timestamp column should open")
+                .expect("timestamp column should exist");
+            column
+                .typed::<Int64Type>()
+                .write_batch(&values, None, None)
+                .expect("timestamp values should write");
+            column.close().expect("timestamp column should close");
+        }
+
+        for values in [[1_234_i32, 1_235], [1_234_i32, 1_235]] {
+            let mut column = row_group
+                .next_column()
+                .expect("time column should open")
+                .expect("time column should exist");
+            column
+                .typed::<Int32Type>()
+                .write_batch(&values, None, None)
+                .expect("time values should write");
+            column.close().expect("time column should close");
+        }
+
+        assert!(
+            row_group
+                .next_column()
+                .expect("temporal semantics completion should succeed")
+                .is_none()
+        );
+        row_group
+            .close()
+            .expect("temporal semantics row group should close");
+        writer
+            .into_inner()
+            .expect("temporal semantics fixture should close")
+    }
+
+    fn converted_temporal_fixture() -> Vec<u8> {
+        let schema = Arc::new(
+            parse_message_type(
+                "message schema {
+                    REQUIRED INT32 legacy_time (TIME_MILLIS);
+                    REQUIRED INT64 legacy_timestamp (TIMESTAMP_MICROS);
+                }",
+            )
+            .expect("converted temporal schema should parse"),
+        );
+        let properties = Arc::new(
+            WriterProperties::builder()
+                .set_dictionary_enabled(false)
+                .build(),
+        );
+        let mut writer = SerializedFileWriter::new(Vec::new(), schema, properties)
+            .expect("converted temporal writer should open");
+        let mut row_group = writer
+            .next_row_group()
+            .expect("converted temporal row group should open");
+
+        let mut time = row_group
+            .next_column()
+            .expect("converted time column should open")
+            .expect("converted time column should exist");
+        time.typed::<Int32Type>()
+            .write_batch(&[1_234], None, None)
+            .expect("converted time should write");
+        time.close().expect("converted time should close");
+
+        let mut timestamp = row_group
+            .next_column()
+            .expect("converted timestamp column should open")
+            .expect("converted timestamp column should exist");
+        timestamp
+            .typed::<Int64Type>()
+            .write_batch(&[1_788_484_682_000_000], None, None)
+            .expect("converted timestamp should write");
+        timestamp.close().expect("converted timestamp should close");
+
+        row_group
+            .close()
+            .expect("converted temporal row group should close");
+        writer
+            .into_inner()
+            .expect("converted temporal fixture should close")
+    }
+
     fn data_page_count(input: &[u8], column_index: usize) -> usize {
         let mut cursor = Cursor::new(input);
         let metadata = read_metadata(&mut cursor).expect("fixture metadata should decode");
@@ -1722,6 +1864,7 @@ mod tests {
         assert_eq!(info.row_groups, 1);
         assert_eq!(info.columns.len(), 3);
         assert_eq!(info.columns[1].path, "status");
+        assert_eq!(info.columns[1].is_adjusted_to_utc, None);
         assert!(info.columns[1].nullable);
         assert!(info.columns[1].supported);
     }
@@ -1802,7 +1945,95 @@ mod tests {
             &timestamps[0],
             Cell::Timestamp(value)
                 if value.value == 1_700_000_000_001
+                    && !value.is_adjusted_to_utc
                     && matches!(value.unit, bindings::exports::sigil::parquet::reader::TimeUnit::Milliseconds)
+        ));
+    }
+
+    #[test]
+    fn temporal_utc_adjustment_is_preserved_across_every_reader_surface() {
+        let input = temporal_semantics_fixture();
+        let info = <Parquet as Guest>::inspect(input.clone())
+            .expect("temporal semantics fixture should inspect");
+        assert_eq!(info.columns.len(), 4);
+        assert_eq!(
+            info.columns[0].logical_type.as_deref(),
+            Some("timestamp(milliseconds)")
+        );
+        assert_eq!(info.columns[0].is_adjusted_to_utc, Some(true));
+        assert_eq!(
+            info.columns[1].logical_type.as_deref(),
+            Some("timestamp(milliseconds)")
+        );
+        assert_eq!(info.columns[1].is_adjusted_to_utc, Some(false));
+        assert_eq!(
+            info.columns[2].logical_type.as_deref(),
+            Some("time(milliseconds)")
+        );
+        assert_eq!(info.columns[2].is_adjusted_to_utc, Some(true));
+        assert_eq!(
+            info.columns[3].logical_type.as_deref(),
+            Some("time(milliseconds)")
+        );
+        assert_eq!(info.columns[3].is_adjusted_to_utc, Some(false));
+
+        assert!(matches!(
+            read(&input, "utc_timestamp", 0),
+            Cell::Timestamp(value)
+                if value.value == 1_788_484_682_000
+                    && value.is_adjusted_to_utc
+                    && matches!(value.unit, bindings::exports::sigil::parquet::reader::TimeUnit::Milliseconds)
+        ));
+        assert!(matches!(
+            read(&input, "local_time", 0),
+            Cell::Time(value)
+                if value.value == 1_234
+                    && !value.is_adjusted_to_utc
+                    && matches!(value.unit, bindings::exports::sigil::parquet::reader::TimeUnit::Milliseconds)
+        ));
+
+        let local_timestamps = read_column(&input, "local_timestamp", 0, 2);
+        assert!(local_timestamps.iter().all(|cell| matches!(
+            cell,
+            Cell::Timestamp(value) if !value.is_adjusted_to_utc
+        )));
+        let utc_times = read_column(&input, "utc_time", 0, 2);
+        assert!(utc_times.iter().all(|cell| matches!(
+            cell,
+            Cell::Time(value) if value.is_adjusted_to_utc
+        )));
+
+        let batch = read_rows(
+            &input,
+            &["local_time", "utc_timestamp", "local_timestamp", "utc_time"],
+            0,
+            2,
+        );
+        assert!(batch.rows.iter().all(|row| {
+            matches!(&row.cells[0], Cell::Time(value) if !value.is_adjusted_to_utc)
+                && matches!(&row.cells[1], Cell::Timestamp(value) if value.is_adjusted_to_utc)
+                && matches!(&row.cells[2], Cell::Timestamp(value) if !value.is_adjusted_to_utc)
+                && matches!(&row.cells[3], Cell::Time(value) if value.is_adjusted_to_utc)
+        }));
+    }
+
+    #[test]
+    fn deprecated_temporal_annotations_map_explicitly_to_utc_adjusted() {
+        let input = converted_temporal_fixture();
+        let info = <Parquet as Guest>::inspect(input.clone())
+            .expect("converted temporal fixture should inspect");
+        assert_eq!(info.columns.len(), 2);
+        assert_eq!(info.columns[0].logical_type, None);
+        assert_eq!(info.columns[0].is_adjusted_to_utc, Some(true));
+        assert_eq!(info.columns[1].logical_type, None);
+        assert_eq!(info.columns[1].is_adjusted_to_utc, Some(true));
+        assert!(matches!(
+            read(&input, "legacy_time", 0),
+            Cell::Time(value) if value.is_adjusted_to_utc
+        ));
+        assert!(matches!(
+            read(&input, "legacy_timestamp", 0),
+            Cell::Timestamp(value) if value.is_adjusted_to_utc
         ));
     }
 
@@ -1879,6 +2110,7 @@ mod tests {
             &batch.rows[0].cells[0],
             Cell::Timestamp(value)
                 if value.value == 1_700_000_000_001_001
+                    && !value.is_adjusted_to_utc
                     && matches!(value.unit, bindings::exports::sigil::parquet::reader::TimeUnit::Microseconds)
         ));
         assert!(matches!(
@@ -1903,6 +2135,7 @@ mod tests {
             &batch.rows[2].cells[5],
             Cell::Timestamp(value)
                 if value.value == 1_700_000_000_003
+                    && !value.is_adjusted_to_utc
                     && matches!(value.unit, bindings::exports::sigil::parquet::reader::TimeUnit::Milliseconds)
         ));
 

@@ -1,12 +1,12 @@
 schema_version = 1
 name = "parquet"
-version = "0.1.1"
+version = "0.2.0"
 description = "bounded typed scalar, column, and projected-row reader for Parquet files in Sigil"
 license = "MIT"
 
 [component]
 file = "plugin.wasm"
-entrypoint = "sigil:parquet/reader@0.1.1"
+entrypoint = "sigil:parquet/reader@0.2.0"
 
 [requires]
 sigil = ">=0.31.0, <1.0.0"
