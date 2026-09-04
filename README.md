@@ -1,11 +1,10 @@
 # Sigil Parquet plugin
 
 `wasm.parquet` is a bounded, read-only Parquet inspector and typed scalar,
-column, or projected-row reader for Sigil scenarios. This source tree builds
-the unreleased 0.2.0 candidate. Public stable 0.1.1 remains immutable and
-accepts complete Parquet file bytes, reports flat leaf-column metadata, reads
-one cell, reads one exact column window, or reads an exact row window for an
-ordered projection.
+column, or projected-row reader for Sigil scenarios. Public stable 0.2.0 is an
+immutable keyless-provenance release. It accepts complete Parquet file bytes,
+reports flat leaf-column metadata, reads one cell, reads one exact column
+window, or reads an exact row window for an ordered projection.
 
 It composes directly with byte-producing plugins such as `wasm.s3`:
 
@@ -46,7 +45,7 @@ for _, cell in ipairs(cells) do
 end
 ```
 
-The 0.2.0 candidate makes a breaking WIT shape correction: Parquet's
+The 0.2.0 release makes a breaking WIT shape correction: Parquet's
 `isAdjustedToUTC` flag is now preserved as `is-adjusted-to-utc`. Structured
 column metadata returns `true` or `false` for every logical or deprecated
 converted TIME/TIMESTAMP annotation, and `nil` for non-temporal columns. Every
@@ -78,15 +77,15 @@ the integer value or time unit. If both representations are present, the
 parameterized LogicalType is authoritative, so local (`false`) semantics are
 not overwritten by its compatibility ConvertedType.
 
-| Public 0.1.0 | Public stable 0.1.1 |
-|---|---|
-| `inspect` and `read-cell` | preserves both and adds `read-column` plus projected `read-rows` |
-| one cell per decode call | one exact typed window per call, parsing the file once |
-| fixed 16 MiB complete-file cap | the same fixed cap; no ambient or invented network grant |
+| Public 0.1.0 | Public 0.1.1 | Public stable 0.2.0 |
+|---|---|---|
+| `inspect` and `read-cell` | preserves both and adds `read-column` plus projected `read-rows` | preserves all four operations |
+| one cell per decode call | one exact typed window per call, parsing the file once | adds explicit UTC-adjustment semantics to temporal metadata and cells |
+| fixed 16 MiB complete-file cap | the same fixed cap | the same fixed cap; no ambient or invented network grant |
 
-Version 0.1.1 requires Sigil 0.31.0 or newer and is available as an immutable
+Version 0.2.0 requires Sigil 0.31.0 or newer and is available as an immutable
 keyless-provenance package. Add the exact public identity with
-`sigil plugin add parquet@0.1.1`.
+`sigil plugin add parquet@0.2.0`.
 
 The same release can decode a small comparison matrix in one call. Column
 identity is returned once in `batch.columns`; every positional row cell uses
@@ -114,17 +113,17 @@ decode. The decoder resolves every selected flat column first, skips unrelated
 columns, decodes each selected overlapping page at most once, and performs one
 linear column-to-row transpose. It preserves the existing tagged NULL, DECIMAL,
 and timestamp values without normalising decimal scale, temporal units, or
-UTC-adjustment semantics in the 0.2.0 candidate.
+UTC-adjustment semantics.
 
 The composition example above uses the public stable S3 0.3.0 tagged-auth API;
-Parquet 0.1.1 accepts its byte-exact output. The complete pairing requires
+Parquet 0.2.0 accepts its byte-exact output. The complete pairing requires
 stable Sigil 0.33.2 or newer because S3 0.3.0 requires Host API 1.2; Parquet
 itself still requires only Sigil 0.31.0 or newer and Host API 1.0. Add both
 exact project locks before evaluating that example:
 
 ```bash
 sigil plugin add s3@0.3.0
-sigil plugin add parquet@0.1.1
+sigil plugin add parquet@0.2.0
 ```
 
 The plugin imports no host capability. The calling scenario still declares the
@@ -149,16 +148,16 @@ addition, allocation, and aggregate bytes are checked before a value is
 exposed. Parser and codec errors are collapsed to stable messages rather than
 exposing input-derived details.
 
-The 16 MiB complete-file input cap deliberately remains fixed in 0.1.1. This
+The 16 MiB complete-file input cap deliberately remains fixed in 0.2.0. This
 pure plugin has no route or grant from which to derive a network-style byte
 allowance; larger complete files or range-backed reads need a Sigil-owned
 resource-limit design rather than an invented Parquet network grant.
 
-Install the official immutable 0.1.1 release and add it to the current project:
+Install the official immutable 0.2.0 release and add it to the current project:
 
 ```bash
-sigil plugin install parquet@0.1.1
-sigil plugin add parquet@0.1.1
+sigil plugin install parquet@0.2.0
+sigil plugin add parquet@0.2.0
 ```
 
 Build, test the compression and temporal fixtures, validate the component, and
