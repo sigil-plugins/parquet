@@ -3,3 +3,7 @@
 /plugin.wasm
 __pycache__/
 /target
+# maw admin tree (consolidated layout) — runtime/admin only
+/.maw/
+/.manifold/
+/repo.git/
